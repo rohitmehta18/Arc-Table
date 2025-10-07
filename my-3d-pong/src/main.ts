@@ -5,9 +5,22 @@ import './style.css';
 /**
  * Scene + Renderer
  */
+
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x101216);
-scene.fog = new THREE.Fog(0x0e1116, 50, 150);
+// Gradient background texture
+const canvasBG = document.createElement('canvas');
+canvasBG.width = 1; 
+canvasBG.height = 256;
+const ctx = canvasBG.getContext('2d')!;
+const gradient = ctx.createLinearGradient(0, 0, 0, 256);
+gradient.addColorStop(0, '#273544');
+gradient.addColorStop(1, '#101216');
+ctx.fillStyle = gradient;
+ctx.fillRect(0, 0, 1, 256);
+const bgTexture = new THREE.CanvasTexture(canvasBG);
+scene.background = bgTexture;
+scene.fog = new THREE.Fog(0x0e1116, 20, 120);
 
 const camera = new THREE.PerspectiveCamera(
   50,
@@ -15,7 +28,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000,
 );
-camera.position.set(0, 6.0, 12.5);
+camera.position.set(0, 6, 12.5);
 camera.lookAt(0, 2.5, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -29,26 +42,21 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 const gameContainer = document.getElementById('game-container') as HTMLElement;
 gameContainer.appendChild(renderer.domElement);
 
-/**
- * Environment/PBR baseline (no bloom)
- */
+// Environment
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environment = envTex;
 
 /**
- * Lights
+ * Lights + volumetric cones
  */
-const hemi = new THREE.HemisphereLight(0xc7d4ff, 0x3a0c13, 0.25);
-scene.add(hemi);
-
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.18);
-scene.add(ambientLight);
+scene.add(new THREE.HemisphereLight(0xc7d4ff, 0x3a0c13, 0.25));
+scene.add(new THREE.AmbientLight(0xffffff, 0.2));
 
 const keySpot = new THREE.SpotLight(0xffffff, 18, 48, Math.PI * 0.18, 0.35);
-keySpot.position.set(0, 16, 5);
+keySpot.position.set(0, 20, 6);
 keySpot.castShadow = true;
-keySpot.shadow.mapSize.set(2048, 2048);
+keySpot.shadow.mapSize.set(3072, 3072);
 keySpot.shadow.bias = -0.00025;
 scene.add(keySpot);
 
@@ -64,17 +72,54 @@ rimR.castShadow = true;
 rimR.shadow.bias = -0.00025;
 scene.add(rimR);
 
+function createLightBeam(color: number | THREE.Color, position: THREE.Vector3) {
+  const coneGeo = new THREE.ConeGeometry(3, 8, 32, 1, true);
+  const coneMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.05,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const cone = new THREE.Mesh(coneGeo, coneMat);
+  cone.position.copy(position);
+  cone.rotation.x = -Math.PI / 2;
+  scene.add(cone);
+  return cone;
+}
+createLightBeam(0xffffff, new THREE.Vector3(0, 18, 6));
+createLightBeam(0xa0c4ff, new THREE.Vector3(-14, 10, -2));
+createLightBeam(0xa0c4ff, new THREE.Vector3(14, 10, 2));
+
 /**
- * Arena envelope
+ * Arena walls and ceiling
  */
 const arenaW = 92;
 const arenaL = 120;
 const arenaH = 24;
 
+function createWallTexture() {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#12171e';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 10000; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+const wallTexture = createWallTexture();
+
 const wallMat = new THREE.MeshStandardMaterial({
-  color: 0x0e1116,
-  roughness: 0.92,
-  metalness: 0.0,
+  color: 0x12171e,
+  roughness: 0.85,
+  metalness: 0.05,
+  map: wallTexture,
 });
 
 const wallBack = new THREE.Mesh(new THREE.PlaneGeometry(arenaW, arenaH), wallMat);
@@ -101,11 +146,11 @@ ceiling.position.set(0, arenaH, 0);
 ceiling.rotation.x = Math.PI / 2;
 scene.add(ceiling);
 
-// Emissive ceiling strips (visual only)
+// Emissive ceiling strips
 const panelMat = new THREE.MeshStandardMaterial({
   color: 0xffffff,
-  emissive: new THREE.Color(0x202020),
-  emissiveIntensity: 1.5,
+  emissive: new THREE.Color(0x303030),
+  emissiveIntensity: 1.8,
   roughness: 0.7,
   metalness: 0.0,
 });
@@ -117,22 +162,120 @@ for (let i = -2; i <= 2; i++) {
 }
 
 /**
- * Regulation scale
+ * Sports mat floor texture
  */
-const TABLE_LENGTH = 9.0;            // 2.74 m
-const TABLE_WIDTH = 5.0;             // 1.525 m
-const TABLE_THICKNESS = 0.25;
-const TABLE_TOP_Y = 2.5;             // ~0.76 m
-const NET_HEIGHT = 0.5;              // 15.25 cm
-const NET_OVERHANG = 0.5;            // 15.25 cm beyond sidelines
-const BOUNDARY_LINE_THICK = 0.066;   // ~2 cm
-const CENTER_LINE_THICK = 0.01;      // ~3 mm
-const BALL_RADIUS = 0.066;           // 40 mm dia => r ~0.066
-const UNITS_PER_M = TABLE_LENGTH / 2.74;
+function makeSportsMatMaps(size = 1024) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const r = document.createElement('canvas');
+  r.width = r.height = size;
+
+  const ctx = c.getContext('2d')!;
+  const rtx = r.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, size, size);
+  grad.addColorStop(0, '#b11631');
+  grad.addColorStop(1, '#6f0d23');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  for (let i = 0; i < 60000; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const a = 0.02 + Math.random() * 0.04;
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1.1;
+  const step = size / 20;
+  for (let y = 0; y < size; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + Math.random() * 2 - 1);
+    ctx.lineTo(size, y + Math.random() * 2 - 1);
+    ctx.stroke();
+  }
+  for (let x = 0; x < size; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x + Math.random() * 2 - 1, 0);
+    ctx.lineTo(x + Math.random() * 2 - 1, size);
+    ctx.stroke();
+  }
+
+  rtx.fillStyle = '#c9c9c9';
+  rtx.fillRect(0, 0, size, size);
+  rtx.globalAlpha = 0.3;
+  rtx.drawImage(c, 0, 0);
+  rtx.globalAlpha = 1.0;
+
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+
+  const rough = new THREE.CanvasTexture(r);
+  rough.wrapS = THREE.RepeatWrapping;
+  rough.wrapT = THREE.RepeatWrapping;
+
+  return { map, rough };
+}
+
+const { map: sportsMatMap, rough: sportsMatRough } = makeSportsMatMaps(1024);
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+sportsMatMap.anisotropy = maxAniso;
+sportsMatRough.anisotropy = maxAniso;
+sportsMatMap.repeat.set(14, 14);
+sportsMatRough.repeat.set(14, 14);
+
+const floorGeom = new THREE.PlaneGeometry(84, 84);
+const floorMat = new THREE.MeshStandardMaterial({
+  map: sportsMatMap,
+  roughnessMap: sportsMatRough,
+  roughness: 0.95,
+  metalness: 0.02,
+});
+const floor = new THREE.Mesh(floorGeom, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = 0;
+floor.receiveShadow = true;
+scene.add(floor);
 
 /**
- * Materials
+ * Dust particles
  */
+const particleCount = 300;
+const particlesGeo = new THREE.BufferGeometry();
+const positions = new Float32Array(particleCount * 3);
+for (let i = 0; i < particleCount; i++) {
+  positions[i * 3] = (Math.random() - 0.5) * arenaW * 0.8;
+  positions[i * 3 + 1] = Math.random() * arenaH * 0.8 + 1;
+  positions[i * 3 + 2] = (Math.random() - 0.5) * arenaL * 0.8;
+}
+particlesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+const particlesMat = new THREE.PointsMaterial({
+  color: 0xffffff,
+  size: 0.1,
+  transparent: true,
+  opacity: 0.05,
+});
+const particles = new THREE.Points(particlesGeo, particlesMat);
+scene.add(particles);
+
+/**
+ * Constants & Materials
+ */
+const TABLE_LENGTH = 9.0;           // 2.74 m
+const TABLE_WIDTH = 5.0;            // 1.525 m
+const TABLE_THICKNESS = 0.25;
+const TABLE_TOP_Y = 2.5;            // ~0.76 m
+const NET_HEIGHT = 0.5;             // 15.25 cm
+const NET_OVERHANG = 0.5;           // 15.25 cm beyond sidelines
+const BOUNDARY_LINE_THICK = 0.066;  // ~2 cm
+const CENTER_LINE_THICK = 0.01;     // ~3 mm
+const BALL_RADIUS = 0.066;          // 40 mm dia => r ~0.066
+const UNITS_PER_M = TABLE_LENGTH / 2.74;
+
 const tableMaterial = new THREE.MeshStandardMaterial({
   color: 0x0e3a8a,
   roughness: 0.72,
@@ -170,91 +313,7 @@ const tapeMaterial = new THREE.MeshStandardMaterial({
 });
 
 /**
- * Premium red sports mat floor (CanvasTexture color + separate roughness)
- */
-function makeSportsMatMaps(size = 1024) {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const r = document.createElement('canvas');
-  r.width = r.height = size;
-
-  const ctx = c.getContext('2d')!;
-  const rtx = r.getContext('2d')!;
-
-  // Rich red gradient base
-  const grad = ctx.createLinearGradient(0, 0, size, size);
-  grad.addColorStop(0, '#c61431');
-  grad.addColorStop(1, '#8b0f23');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-
-  // Micro speckle for vinyl look
-  for (let i = 0; i < 48000; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const a = 0.018 + Math.random() * 0.03;
-    ctx.fillStyle = `rgba(0,0,0,${a})`;
-    ctx.fillRect(x, y, 1, 1);
-  }
-
-  // Fine cross-hatch
-  ctx.strokeStyle = 'rgba(255,255,255,0.045)';
-  ctx.lineWidth = 1.2;
-  const step = size / 20;
-  for (let y = 0; y < size; y += step) {
-    ctx.beginPath();
-    ctx.moveTo(0, y + Math.random() * 2 - 1);
-    ctx.lineTo(size, y + Math.random() * 2 - 1);
-    ctx.stroke();
-  }
-  for (let x = 0; x < size; x += step) {
-    ctx.beginPath();
-    ctx.moveTo(x + Math.random() * 2 - 1, 0);
-    ctx.lineTo(x + Math.random() * 2 - 1, size);
-    ctx.stroke();
-  }
-
-  // Roughness map: brighter = rougher
-  rtx.fillStyle = '#d2d2d2';
-  rtx.fillRect(0, 0, size, size);
-  rtx.globalAlpha = 0.25;
-  rtx.drawImage(c, 0, 0);
-  rtx.globalAlpha = 1.0;
-
-  const map = new THREE.CanvasTexture(c);
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.wrapS = THREE.RepeatWrapping;
-  map.wrapT = THREE.RepeatWrapping;
-
-  const rough = new THREE.CanvasTexture(r);
-  rough.wrapS = THREE.RepeatWrapping;
-  rough.wrapT = THREE.RepeatWrapping;
-
-  return { map, rough };
-}
-
-const { map: sportsMatMap, rough: sportsMatRough } = makeSportsMatMaps(1024);
-const maxAniso = renderer.capabilities.getMaxAnisotropy();
-sportsMatMap.anisotropy = maxAniso;
-sportsMatRough.anisotropy = maxAniso;
-sportsMatMap.repeat.set(12, 12);
-sportsMatRough.repeat.set(12, 12);
-
-const floorGeom = new THREE.PlaneGeometry(84, 84);
-const floorMat = new THREE.MeshStandardMaterial({
-  map: sportsMatMap,
-  roughnessMap: sportsMatRough,
-  roughness: 0.93,
-  metalness: 0.02,
-});
-const floor = new THREE.Mesh(floorGeom, floorMat);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = 0;
-floor.receiveShadow = true;
-scene.add(floor);
-
-/**
- * Table builder (re-usable for side tables)
+ * Table builder
  */
 function buildTable(): THREE.Group {
   const g = new THREE.Group();
@@ -318,16 +377,15 @@ function buildTable(): THREE.Group {
 
   return g;
 }
-
 const mainTable = buildTable();
 scene.add(mainTable);
 
 /**
- * High-quality net: even object-space squares + sag, tape/cord/posts
+ * Net (shader material) - using your existing shader code unchanged, attached below:
  */
+
 const netWidth = TABLE_WIDTH + NET_OVERHANG * 2;
 const netHeight = NET_HEIGHT;
-
 const cellMeters = 0.015; // ~1.5 cm squares
 const uCell = cellMeters * UNITS_PER_M;
 
@@ -416,7 +474,7 @@ postR.position.x = TABLE_WIDTH / 2 + NET_OVERHANG;
 scene.add(postR);
 
 /**
- * Advertising barriers around court (“ACR TABLE”)
+ * Advertising barriers ("ACR TABLE")
  */
 const barrierW = 2.33 * UNITS_PER_M;
 const barrierH = 0.72 * UNITS_PER_M;
@@ -500,7 +558,7 @@ for (let i = 0; i < runSides; i++) {
 scene.add(barrierGroup);
 
 /**
- * Deep audience seating only at the back (front platforms removed)
+ * Deep audience seating only at the back
  */
 function buildBackBleachers(zBase: number) {
   const group = new THREE.Group();
@@ -548,7 +606,7 @@ const backBleachers = buildBackBleachers(backBleachersZ);
 scene.add(backBleachers);
 
 /**
- * Extra empty tables on sides for arena vibes
+ * Extra side tables for arena vibes
  */
 function spawnEmptyTable(x: number, z: number) {
   const t = buildTable();
@@ -564,7 +622,7 @@ spawnEmptyTable(sideOffsetX, -4.5);
 spawnEmptyTable(sideOffsetX, 4.5);
 
 /**
- * Player and opponent rackets: circular blades
+ * Player and opponent paddles
  */
 const PADDLE_RADIUS = 0.45;
 const PADDLE_DEPTH = 0.12;
@@ -669,6 +727,17 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
 
+  // Animate dust particles
+  const posArr = particlesGeo.attributes.position.array as Float32Array;
+  for (let i = 0; i < particleCount; i++) {
+    posArr[i * 3 + 1] += delta * 0.03; // rise
+    posArr[i * 3] += Math.sin(clock.elapsedTime + i) * 0.001; // drift sideways
+    if (posArr[i * 3 + 1] > arenaH) {
+      posArr[i * 3 + 1] = 0.5 + Math.random() * arenaH * 0.3;
+    }
+  }
+  particlesGeo.attributes.position.needsUpdate = true;
+
   // Ball physics
   ballVelocity.y -= GRAVITY * delta * 0.20;
   ball.position.addScaledVector(ballVelocity, delta * 15);
@@ -739,13 +808,18 @@ function animate() {
   renderer.render(scene, camera);
 }
 
+/**
+ * Responsive resize
+ */
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// If your code uses backBleachers:
+/**
+ * Dispose of backBleachers when needed
+ */
 scene.remove(backBleachers);
 backBleachers.traverse((o: any) => {
   if (o.isMesh) {
@@ -755,5 +829,106 @@ backBleachers.traverse((o: any) => {
   }
 });
 
+// Create a very premium-looking wooden plank texture procedurally using canvas
+function createPremiumWoodTexture(width = 2048, height = 1024) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+
+  // Gradient base warm brown tones for wood
+  const grad = ctx.createLinearGradient(0, 0, 0, height);
+  grad.addColorStop(0, '#5d3a1a');
+  grad.addColorStop(0.5, '#824d1a');
+  grad.addColorStop(1, '#4c2a0e');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  // Draw long horizontal wooden planks with staggered seams
+  const plankHeight = 150; // height of each plank
+  const plankCount = Math.ceil(height / plankHeight) + 1;
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(100, 60, 20, 0.8)';
+
+  // Draw subtle curved wood grain lines function
+  const drawGrainLines = (xStart: number, yStart: number, w: number, h: number) => {
+    const lines = 50;
+    for (let i = 0; i < lines; i++) {
+      const x = xStart + Math.random() * w;
+      const y = yStart + Math.random() * h;
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(80, 50, 20, ${0.15 + Math.random() * 0.1})`;
+      ctx.lineWidth = 1;
+      const cp1x = x + (Math.random() - 0.5) * 20;
+      const cp1y = y + (Math.random() - 0.5) * 10;
+      const cp2x = x + (Math.random() - 0.5) * 20;
+      const cp2y = y + h / 2 + (Math.random() - 0.5) * 10;
+      ctx.moveTo(x, y);
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x + 10, y + h);
+      ctx.stroke();
+    }
+  };
+
+  for (let i = 0; i < plankCount; i++) {
+    // Draw horizontal plank separation line with slight waves to simulate plank join
+    let y = i * plankHeight;
+    let offset = (i % 2) * width * 0.5; // stagger seams horizontally
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x < width; x += 20) {
+      ctx.lineTo(x, y + Math.sin((x + offset) * 0.04) * 3);
+    }
+    ctx.stroke();
+
+    // Draw grain lines inside plank boundaries
+    drawGrainLines(0, y, width, plankHeight);
+  }
+
+  // Add fine noise overlay for texture roughness
+  const noiseDensity = 90000;
+  for (let i = 0; i < noiseDensity; i++) {
+    const x = Math.random() * width;
+    const y = Math.random() * height;
+    const alpha = Math.random() * 0.06;
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+
+  // Create the final THREE texture from canvas
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(3, 2);
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  texture.encoding = THREE.sRGBEncoding;
+  return texture;
+}
+
+const woodTexture = createPremiumWoodTexture();
+const woodMaterial = new THREE.MeshStandardMaterial({
+  map: woodTexture,
+  roughness: 0.48,
+  metalness: 0.12,
+  envMapIntensity: 0.3,
+  color: 0xffffff,
+});
+
+/**
+ * Replace backWall and side walls materials with premium wood
+ */
+scene.remove(wallBack, wallLeft, wallRight);
+
+const backWoodWall = new THREE.Mesh(new THREE.PlaneGeometry(arenaW, arenaH), woodMaterial);
+backWoodWall.position.set(0, arenaH / 2, -arenaL / 2);
+scene.add(backWoodWall);
+
+const leftWoodWall = new THREE.Mesh(new THREE.PlaneGeometry(arenaL, arenaH), woodMaterial);
+leftWoodWall.rotation.y = Math.PI / 2;
+leftWoodWall.position.set(-arenaW / 2, arenaH / 2, 0);
+scene.add(leftWoodWall);
+
+const rightWoodWall = leftWoodWall.clone();
+rightWoodWall.rotation.y = -Math.PI / 2;
+rightWoodWall.position.x = arenaW / 2;
+scene.add(rightWoodWall);
 
 animate();
