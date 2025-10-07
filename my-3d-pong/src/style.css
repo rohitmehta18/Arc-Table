@@ -1,0 +1,46 @@
+/* Import a digital-style font from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+/* Basic setup for a full-screen experience */
+body {
+  margin: 0;
+  overflow: hidden; /* Prevent scrollbars */
+  background-color: #000000; /* Match the scene background */
+  color: white;
+  font-family: 'Orbitron', sans-serif; /* Apply the new font */
+}
+
+/* The game container must fill the screen */
+#game-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Enhanced scoreboard styling */
+#score-board {
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 5vw; /* Responsive font size */
+  font-weight: 700;
+  letter-spacing: 0.1em; /* Spacing for a digital look */
+  opacity: 0.8; /* Slightly transparent to be less intrusive */
+  user-select: none;
+  z-index: 10;
+
+  /* Subtle glow effect to match the game's bloom */
+  text-shadow:
+    0 0 5px rgba(255, 255, 255, 0.5),
+    0 0 10px rgba(0, 191, 255, 0.4),
+    0 0 20px rgba(0, 191, 255, 0.3);
+}
+
+/* Make sure the canvas element itself behaves correctly */
+canvas {
+    display: block;
+}
+  
