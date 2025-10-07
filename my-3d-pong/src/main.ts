@@ -7,6 +7,7 @@ import './style.css';
  */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x101216);
+scene.fog = new THREE.Fog(0x0e1116, 50, 150);
 
 const camera = new THREE.PerspectiveCamera(
   50,
@@ -14,7 +15,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000,
 );
-camera.position.set(0, 5.5, 12);
+camera.position.set(0, 6.0, 12.5);
 camera.lookAt(0, 2.5, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -22,9 +23,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.1;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-(document as any).renderer = renderer; // for debugging
 
 const gameContainer = document.getElementById('game-container') as HTMLElement;
 gameContainer.appendChild(renderer.domElement);
@@ -39,45 +39,45 @@ scene.environment = envTex;
 /**
  * Lights
  */
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+const hemi = new THREE.HemisphereLight(0xc7d4ff, 0x3a0c13, 0.25);
+scene.add(hemi);
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.18);
 scene.add(ambientLight);
 
-const keySpot = new THREE.SpotLight(0xffffff, 18, 40, Math.PI * 0.18, 0.35);
-keySpot.position.set(0, 15, 5);
+const keySpot = new THREE.SpotLight(0xffffff, 18, 48, Math.PI * 0.18, 0.35);
+keySpot.position.set(0, 16, 5);
 keySpot.castShadow = true;
 keySpot.shadow.mapSize.set(2048, 2048);
 keySpot.shadow.bias = -0.00025;
 scene.add(keySpot);
 
-const rimL = new THREE.SpotLight(0xffffff, 8, 40, Math.PI * 0.22, 0.45);
-rimL.position.set(-12, 9, -2);
+const rimL = new THREE.SpotLight(0xffffff, 9, 50, Math.PI * 0.22, 0.45);
+rimL.position.set(-14, 10, -2);
 rimL.castShadow = true;
 rimL.shadow.bias = -0.00025;
 scene.add(rimL);
 
-const rimR = new THREE.SpotLight(0xffffff, 8, 40, Math.PI * 0.22, 0.45);
-rimR.position.set(12, 9, 2);
+const rimR = new THREE.SpotLight(0xffffff, 9, 50, Math.PI * 0.22, 0.45);
+rimR.position.set(14, 10, 2);
 rimR.castShadow = true;
 rimR.shadow.bias = -0.00025;
 scene.add(rimR);
 
 /**
- * Arena envelope (walls/ceiling + subtle emissive panels)
+ * Arena envelope
  */
-const roomGroup = new THREE.Group();
-const roomMat = new THREE.MeshStandardMaterial({
+const arenaW = 92;
+const arenaL = 120;
+const arenaH = 24;
+
+const wallMat = new THREE.MeshStandardMaterial({
   color: 0x0e1116,
-  roughness: 0.9,
+  roughness: 0.92,
   metalness: 0.0,
 });
 
-const arenaW = 80;
-const arenaL = 90;
-const arenaH = 20;
-
-const floorY = 0;
-
-const wallBack = new THREE.Mesh(new THREE.PlaneGeometry(arenaW, arenaH), roomMat);
+const wallBack = new THREE.Mesh(new THREE.PlaneGeometry(arenaW, arenaH), wallMat);
 wallBack.position.set(0, arenaH / 2, -arenaL / 2);
 scene.add(wallBack);
 
@@ -86,7 +86,7 @@ wallFront.position.z = arenaL / 2;
 wallFront.rotation.y = Math.PI;
 scene.add(wallFront);
 
-const wallLeft = new THREE.Mesh(new THREE.PlaneGeometry(arenaL, arenaH), roomMat);
+const wallLeft = new THREE.Mesh(new THREE.PlaneGeometry(arenaL, arenaH), wallMat);
 wallLeft.rotation.y = Math.PI / 2;
 wallLeft.position.set(-arenaW / 2, arenaH / 2, 0);
 scene.add(wallLeft);
@@ -96,7 +96,7 @@ wallRight.position.x = arenaW / 2;
 wallRight.rotation.y = -Math.PI / 2;
 scene.add(wallRight);
 
-const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(arenaW, arenaL), roomMat);
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(arenaW, arenaL), wallMat);
 ceiling.position.set(0, arenaH, 0);
 ceiling.rotation.x = Math.PI / 2;
 scene.add(ceiling);
@@ -104,33 +104,30 @@ scene.add(ceiling);
 // Emissive ceiling strips (visual only)
 const panelMat = new THREE.MeshStandardMaterial({
   color: 0xffffff,
-  emissive: new THREE.Color(0x222222),
-  emissiveIntensity: 1.4,
+  emissive: new THREE.Color(0x202020),
+  emissiveIntensity: 1.5,
   roughness: 0.7,
   metalness: 0.0,
 });
-for (let i = -2; i <= 2; i += 2) {
-  const strip = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.2), panelMat);
-  strip.position.set(i * 6, arenaH - 0.05, -2 + (i % 4 === 0 ? 2 : -2));
+for (let i = -2; i <= 2; i++) {
+  const strip = new THREE.Mesh(new THREE.PlaneGeometry(10, 1.2), panelMat);
+  strip.position.set(i * 12, arenaH - 0.05, (i % 2 === 0 ? 3 : -3));
   strip.rotation.x = Math.PI / 2;
   scene.add(strip);
 }
 
 /**
- * Scaling constants (regulation)
- * 2.74m (L) => 9 units, 1.525m (W) => 5 units, top at 0.76m => ~2.5 units
+ * Regulation scale
  */
-const TABLE_LENGTH = 9.0;
-const TABLE_WIDTH = 5.0;
+const TABLE_LENGTH = 9.0;            // 2.74 m
+const TABLE_WIDTH = 5.0;             // 1.525 m
 const TABLE_THICKNESS = 0.25;
-const TABLE_TOP_Y = 2.5;
-const NET_HEIGHT = 0.5;            // 15.25 cm
-const NET_OVERHANG = 0.5;          // 15.25 cm each side
-const BOUNDARY_LINE_THICK = 0.066; // ~2 cm
-const CENTER_LINE_THICK = 0.01;    // ~3 mm
-const BALL_RADIUS = 0.066;         // 40mm diameter -> r ~ 0.066
-
-// Scale factor for real meters
+const TABLE_TOP_Y = 2.5;             // ~0.76 m
+const NET_HEIGHT = 0.5;              // 15.25 cm
+const NET_OVERHANG = 0.5;            // 15.25 cm beyond sidelines
+const BOUNDARY_LINE_THICK = 0.066;   // ~2 cm
+const CENTER_LINE_THICK = 0.01;      // ~3 mm
+const BALL_RADIUS = 0.066;           // 40 mm dia => r ~0.066
 const UNITS_PER_M = TABLE_LENGTH / 2.74;
 
 /**
@@ -138,17 +135,17 @@ const UNITS_PER_M = TABLE_LENGTH / 2.74;
  */
 const tableMaterial = new THREE.MeshStandardMaterial({
   color: 0x0e3a8a,
-  roughness: 0.75,
+  roughness: 0.72,
   metalness: 0.0,
 });
 const lineMaterial = new THREE.MeshStandardMaterial({
   color: 0xffffff,
-  roughness: 0.7,
+  roughness: 0.65,
   metalness: 0.0,
 });
 const frameMetal = new THREE.MeshStandardMaterial({
   color: 0x8a8d92,
-  roughness: 0.25,
+  roughness: 0.28,
   metalness: 0.85,
 });
 const paddleRedMaterial = new THREE.MeshStandardMaterial({
@@ -173,164 +170,174 @@ const tapeMaterial = new THREE.MeshStandardMaterial({
 });
 
 /**
- * Procedural parquet floor (CanvasTexture, no external assets)
+ * Premium red sports mat floor (CanvasTexture color + separate roughness)
  */
-function makeParquetTexture(size = 1024, planks = 10) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#5a422c';
+function makeSportsMatMaps(size = 1024) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const r = document.createElement('canvas');
+  r.width = r.height = size;
+
+  const ctx = c.getContext('2d')!;
+  const rtx = r.getContext('2d')!;
+
+  // Rich red gradient base
+  const grad = ctx.createLinearGradient(0, 0, size, size);
+  grad.addColorStop(0, '#c61431');
+  grad.addColorStop(1, '#8b0f23');
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
 
-  const plankW = size / planks;
-  for (let y = 0; y < planks; y++) {
-    for (let x = 0; x < planks; x++) {
-      const px = Math.floor(x * plankW);
-      const py = Math.floor(y * plankW);
-      const w = Math.ceil(plankW);
-      const h = Math.ceil(plankW);
-
-      // Vary tone
-      const base = 80 + Math.floor(Math.random() * 30);
-      ctx.fillStyle = `hsl(30, 30%, ${base}%)`;
-      ctx.fillRect(px, py, w, h);
-
-      // Subtle grain lines
-      ctx.strokeStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.04})`;
-      ctx.lineWidth = 1;
-      for (let gy = 0; gy < h; gy += 6 + Math.random() * 8) {
-        ctx.beginPath();
-        ctx.moveTo(px + 2, py + gy);
-        ctx.lineTo(px + w - 2, py + gy + (Math.random() * 2 - 1));
-        ctx.stroke();
-      }
-
-      // Seams
-      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(px, py, w, h);
-    }
+  // Micro speckle for vinyl look
+  for (let i = 0; i < 48000; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const a = 0.018 + Math.random() * 0.03;
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
+    ctx.fillRect(x, y, 1, 1);
   }
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.needsUpdate = true;
-  return tex;
+  // Fine cross-hatch
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+  ctx.lineWidth = 1.2;
+  const step = size / 20;
+  for (let y = 0; y < size; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + Math.random() * 2 - 1);
+    ctx.lineTo(size, y + Math.random() * 2 - 1);
+    ctx.stroke();
+  }
+  for (let x = 0; x < size; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x + Math.random() * 2 - 1, 0);
+    ctx.lineTo(x + Math.random() * 2 - 1, size);
+    ctx.stroke();
+  }
+
+  // Roughness map: brighter = rougher
+  rtx.fillStyle = '#d2d2d2';
+  rtx.fillRect(0, 0, size, size);
+  rtx.globalAlpha = 0.25;
+  rtx.drawImage(c, 0, 0);
+  rtx.globalAlpha = 1.0;
+
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+
+  const rough = new THREE.CanvasTexture(r);
+  rough.wrapS = THREE.RepeatWrapping;
+  rough.wrapT = THREE.RepeatWrapping;
+
+  return { map, rough };
 }
 
-const parquet = makeParquetTexture(1024, 8);
+const { map: sportsMatMap, rough: sportsMatRough } = makeSportsMatMaps(1024);
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
-parquet.anisotropy = maxAniso;
-parquet.repeat.set(12, 12);
+sportsMatMap.anisotropy = maxAniso;
+sportsMatRough.anisotropy = maxAniso;
+sportsMatMap.repeat.set(12, 12);
+sportsMatRough.repeat.set(12, 12);
 
-const floorGeom = new THREE.PlaneGeometry(70, 70);
-(floorGeom as any).setAttribute('uv2', new THREE.BufferAttribute(
-  (floorGeom.attributes.uv as THREE.BufferAttribute).array, 2,
-));
-
+const floorGeom = new THREE.PlaneGeometry(84, 84);
 const floorMat = new THREE.MeshStandardMaterial({
-  map: parquet,
-  roughness: 0.85,
+  map: sportsMatMap,
+  roughnessMap: sportsMatRough,
+  roughness: 0.93,
   metalness: 0.02,
 });
 const floor = new THREE.Mesh(floorGeom, floorMat);
 floor.rotation.x = -Math.PI / 2;
-floor.position.y = floorY;
+floor.position.y = 0;
 floor.receiveShadow = true;
 scene.add(floor);
 
 /**
- * Table group
+ * Table builder (re-usable for side tables)
  */
-const tableGroup = new THREE.Group();
-tableGroup.position.y = TABLE_TOP_Y - TABLE_THICKNESS / 2;
+function buildTable(): THREE.Group {
+  const g = new THREE.Group();
+  g.position.y = TABLE_TOP_Y - TABLE_THICKNESS / 2;
 
-// Tabletop
-const tableTop = new THREE.Mesh(
-  new THREE.BoxGeometry(TABLE_WIDTH, TABLE_THICKNESS, TABLE_LENGTH),
-  tableMaterial,
-);
-tableTop.receiveShadow = true;
-tableTop.castShadow = false;
-tableGroup.add(tableTop);
+  const tableTop = new THREE.Mesh(
+    new THREE.BoxGeometry(TABLE_WIDTH, TABLE_THICKNESS, TABLE_LENGTH),
+    tableMaterial,
+  );
+  tableTop.receiveShadow = true;
+  g.add(tableTop);
 
-// Boundary lines
-const endLineGeom = new THREE.BoxGeometry(TABLE_WIDTH, 0.01, BOUNDARY_LINE_THICK);
-const endLineNear = new THREE.Mesh(endLineGeom, lineMaterial);
-endLineNear.position.set(0, TABLE_THICKNESS / 2 + 0.006, -TABLE_LENGTH / 2);
-tableGroup.add(endLineNear);
+  const endLineGeom = new THREE.BoxGeometry(TABLE_WIDTH, 0.01, BOUNDARY_LINE_THICK);
+  const endNear = new THREE.Mesh(endLineGeom, lineMaterial);
+  endNear.position.set(0, TABLE_THICKNESS / 2 + 0.006, -TABLE_LENGTH / 2);
+  g.add(endNear);
 
-const endLineFar = endLineNear.clone();
-endLineFar.position.z = TABLE_LENGTH / 2;
-tableGroup.add(endLineFar);
+  const endFar = endNear.clone();
+  endFar.position.z = TABLE_LENGTH / 2;
+  g.add(endFar);
 
-const sideLineGeom = new THREE.BoxGeometry(BOUNDARY_LINE_THICK, 0.01, TABLE_LENGTH);
-const sideLineL = new THREE.Mesh(sideLineGeom, lineMaterial);
-sideLineL.position.set(-TABLE_WIDTH / 2, TABLE_THICKNESS / 2 + 0.006, 0);
-tableGroup.add(sideLineL);
+  const sideLineGeom = new THREE.BoxGeometry(BOUNDARY_LINE_THICK, 0.01, TABLE_LENGTH);
+  const sideL = new THREE.Mesh(sideLineGeom, lineMaterial);
+  sideL.position.set(-TABLE_WIDTH / 2, TABLE_THICKNESS / 2 + 0.006, 0);
+  g.add(sideL);
 
-const sideLineR = sideLineL.clone();
-sideLineR.position.x = TABLE_WIDTH / 2;
-tableGroup.add(sideLineR);
+  const sideR = sideL.clone();
+  sideR.position.x = TABLE_WIDTH / 2;
+  g.add(sideR);
 
-// Center line (doubles)
-const centerLine = new THREE.Mesh(
-  new THREE.BoxGeometry(CENTER_LINE_THICK, 0.01, TABLE_LENGTH),
-  lineMaterial,
-);
-centerLine.position.set(0, TABLE_THICKNESS / 2 + 0.006, 0);
-tableGroup.add(centerLine);
+  const centerLine = new THREE.Mesh(
+    new THREE.BoxGeometry(CENTER_LINE_THICK, 0.01, TABLE_LENGTH),
+    lineMaterial,
+  );
+  centerLine.position.set(0, TABLE_THICKNESS / 2 + 0.006, 0);
+  g.add(centerLine);
 
-// Legs and frame
-const legGeom = new THREE.BoxGeometry(0.15, TABLE_TOP_Y - 0.05, 0.15);
-function addLeg(x: number, z: number) {
-  const leg = new THREE.Mesh(legGeom, frameMetal);
-  leg.position.set(x, -((TABLE_TOP_Y - 0.05) / 2), z);
-  leg.castShadow = true;
-  leg.receiveShadow = true;
-  tableGroup.add(leg);
+  const legGeom = new THREE.BoxGeometry(0.15, TABLE_TOP_Y - 0.05, 0.15);
+  const addLeg = (x: number, z: number) => {
+    const leg = new THREE.Mesh(legGeom, frameMetal);
+    leg.position.set(x, -((TABLE_TOP_Y - 0.05) / 2), z);
+    leg.castShadow = true;
+    leg.receiveShadow = true;
+    g.add(leg);
+  };
+  const legX = TABLE_WIDTH / 2 - 0.35;
+  const legZ = TABLE_LENGTH / 2 - 0.4;
+  addLeg(legX, legZ);
+  addLeg(-legX, legZ);
+  addLeg(legX, -legZ);
+  addLeg(-legX, -legZ);
+
+  const bar = new THREE.Mesh(
+    new THREE.BoxGeometry(TABLE_WIDTH - 0.8, 0.08, 0.08),
+    frameMetal,
+  );
+  bar.position.set(0, -0.8, 0);
+  bar.castShadow = true;
+  bar.receiveShadow = true;
+  g.add(bar);
+
+  return g;
 }
-const legOffsetX = TABLE_WIDTH / 2 - 0.35;
-const legOffsetZ = TABLE_LENGTH / 2 - 0.4;
-addLeg(legOffsetX, legOffsetZ);
-addLeg(-legOffsetX, legOffsetZ);
-addLeg(legOffsetX, -legOffsetZ);
-addLeg(-legOffsetX, -legOffsetZ);
 
-// Cross bar
-const bar = new THREE.Mesh(
-  new THREE.BoxGeometry(TABLE_WIDTH - 0.8, 0.08, 0.08),
-  frameMetal,
-);
-bar.position.set(0, -0.8, 0);
-bar.castShadow = true;
-bar.receiveShadow = true;
-tableGroup.add(bar);
-
-scene.add(tableGroup);
+const mainTable = buildTable();
+scene.add(mainTable);
 
 /**
- * High-quality net (dense mesh, shader sag), top cord + tape, posts
- * Regulation height 15.25 cm and 15.25 cm overhang each side
+ * High-quality net: even object-space squares + sag, tape/cord/posts
  */
 const netWidth = TABLE_WIDTH + NET_OVERHANG * 2;
 const netHeight = NET_HEIGHT;
 
-// Compute grid density to mimic ~1.5 cm squares
-const cellMeters = 0.015;
-const cellsX = Math.max(40, Math.floor((netWidth / UNITS_PER_M) / cellMeters));
-const cellsY = Math.max(18, Math.floor((netHeight / UNITS_PER_M) / cellMeters));
+const cellMeters = 0.015; // ~1.5 cm squares
+const uCell = cellMeters * UNITS_PER_M;
 
 const netUniforms = {
   uColor: { value: new THREE.Color(0xE6E6E6) },
   uBackColor: { value: new THREE.Color(0x0a0a0a) },
-  uScale: { value: new THREE.Vector2(cellsX, cellsY) },
-  uLine: { value: 0.16 }, // filament thickness within each cell
-  uOpacity: { value: 0.95 },
-  uHalfWidth: { value: netWidth * 0.5 },
-  uSag: { value: 0.055 }, // sag amount at center
+  uCell: { value: uCell },
+  uHalf: { value: new THREE.Vector2(netWidth * 0.5, netHeight * 0.5) },
+  uOpacity: { value: 0.96 },
+  uSag: { value: 0.055 },
 };
 
 const netMat = new THREE.ShaderMaterial({
@@ -338,33 +345,38 @@ const netMat = new THREE.ShaderMaterial({
   transparent: true,
   side: THREE.DoubleSide,
   vertexShader: `
-    varying vec2 vUv;
-    uniform float uHalfWidth;
+    varying vec3 vPos;
     uniform float uSag;
+    uniform vec2 uHalf;
     void main() {
-      vUv = uv;
       vec3 p = position;
-      float xNorm = clamp(p.x / uHalfWidth, -1.0, 1.0);
+      vPos = p;
+      float xNorm = clamp(p.x / uHalf.x, -1.0, 1.0);
       float sag = uSag * (1.0 - xNorm * xNorm);
       p.y -= sag;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
     }
   `,
   fragmentShader: `
-    varying vec2 vUv;
+    varying vec3 vPos;
     uniform vec3 uColor;
     uniform vec3 uBackColor;
-    uniform vec2 uScale;
-    uniform float uLine;
+    uniform float uCell;
     uniform float uOpacity;
+    uniform vec2 uHalf;
+
+    float lineFactor(float d, float w){
+      return step(d, w);
+    }
 
     void main() {
-      vec2 uv = fract(vUv * uScale);
-      float lineX = min(uv.x, 1.0 - uv.x);
-      float lineY = min(uv.y, 1.0 - uv.y);
-      float lineWidth = uLine * 0.5;
-      float isLine = step(lineX, lineWidth) + step(lineY, lineWidth);
-      isLine = clamp(isLine, 0.0, 1.0);
+      vec2 g = vec2(vPos.x + uHalf.x, vPos.y + uHalf.y) / uCell;
+      vec2 f = abs(fract(g) - 0.5);
+      float lw = 0.12;
+      float gx = lineFactor(f.x, lw);
+      float gy = lineFactor(f.y, lw);
+      float isLine = clamp(gx + gy, 0.0, 1.0);
+
       vec3 col = mix(uBackColor, uColor, isLine);
       float alpha = mix(0.0, uOpacity, isLine);
       if (alpha < 0.01) discard;
@@ -373,15 +385,13 @@ const netMat = new THREE.ShaderMaterial({
   `,
 });
 
-const netGeom = new THREE.PlaneGeometry(netWidth, netHeight, 96, 24);
+const netGeom = new THREE.PlaneGeometry(netWidth, netHeight, 128, 32);
 const net = new THREE.Mesh(netGeom, netMat);
 net.position.set(0, TABLE_TOP_Y + netHeight / 2, 0);
-net.renderOrder = 1;
 scene.add(net);
 
-// Top cord and tape
 const cord = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.03, 0.03, netWidth, 16),
+  new THREE.CylinderGeometry(0.03, 0.03, netWidth, 20),
   frameMetal,
 );
 cord.rotation.z = Math.PI / 2;
@@ -395,7 +405,6 @@ const tape = new THREE.Mesh(
 tape.position.set(0, TABLE_TOP_Y + netHeight + 0.05, 0.01);
 scene.add(tape);
 
-// Net posts
 const postGeom = new THREE.CylinderGeometry(0.055, 0.055, netHeight + 0.28, 24);
 const postL = new THREE.Mesh(postGeom, frameMetal);
 postL.position.set(-TABLE_WIDTH / 2 - NET_OVERHANG, TABLE_TOP_Y + (netHeight + 0.28) / 2, 0);
@@ -407,35 +416,28 @@ postR.position.x = TABLE_WIDTH / 2 + NET_OVERHANG;
 scene.add(postR);
 
 /**
- * Advertising barriers (“ACR TABLE”) around the court
- * Common size: ~2.33 m × ~0.70–0.73 m => convert to scene units
+ * Advertising barriers around court (“ACR TABLE”)
  */
 const barrierW = 2.33 * UNITS_PER_M;
 const barrierH = 0.72 * UNITS_PER_M;
 
-function makeBannerTexture(text = 'ACR TABLE', w = 1024, h = 256) {
+function makeBannerTexture(text = 'ACR TABLE', w = 2048, h = 512) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d')!;
-  // base
   ctx.fillStyle = '#0B3C91';
   ctx.fillRect(0, 0, w, h);
-  // border
   ctx.strokeStyle = '#0d2852';
   ctx.lineWidth = 8;
   ctx.strokeRect(4, 4, w - 8, h - 8);
-  // text
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 140px sans-serif';
+  ctx.font = 'bold 200px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, w / 2, h / 2 + 6);
-
+  ctx.fillText(text, w / 2, h / 2 + 8);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.ClampToEdgeWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.needsUpdate = true;
   return tex;
 }
@@ -451,54 +453,46 @@ function makeBarrier() {
     metalness: 0.0,
   });
   const panel = new THREE.Mesh(new THREE.PlaneGeometry(barrierW, barrierH), clothMat);
-  panel.castShadow = false;
-  panel.receiveShadow = false;
-
-  const frame = new THREE.Mesh(
-    new THREE.BoxGeometry(barrierW, 0.02, 0.02),
-    frameMetal,
-  );
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(barrierW, 0.02, 0.02), frameMetal);
   frame.position.y = barrierH / 2;
-
-  // Simple feet
   const footGeom = new THREE.BoxGeometry(0.05, 0.02, 0.35);
   const footL = new THREE.Mesh(footGeom, frameMetal);
   footL.position.set(-barrierW / 2 + 0.2, 0.01, 0.15);
   const footR = footL.clone();
   footR.position.x = barrierW / 2 - 0.2;
-
   group.add(panel, frame, footL, footR);
   return group;
 }
 
-// Place a rectangle of barriers around the table
 const barrierGroup = new THREE.Group();
-const marginZ = 3.0;
-const marginX = 3.0;
+const marginZ = 3.2;
+const marginX = 3.2;
 
 const runFront = Math.ceil((TABLE_WIDTH + marginX * 2) / barrierW);
 for (let i = 0; i < runFront; i++) {
-  const bFront = makeBarrier();
   const x = -((runFront - 1) * barrierW) / 2 + i * barrierW;
-  bFront.position.set(x, floorY + barrierH / 2, TABLE_LENGTH / 2 + marginZ);
+
+  const bFront = makeBarrier();
+  bFront.position.set(x, barrierH / 2, TABLE_LENGTH / 2 + marginZ);
   barrierGroup.add(bFront);
 
   const bBack = makeBarrier();
-  bBack.position.set(x, floorY + barrierH / 2, -TABLE_LENGTH / 2 - marginZ);
+  bBack.position.set(x, barrierH / 2, -TABLE_LENGTH / 2 - marginZ);
   bBack.rotation.y = Math.PI;
   barrierGroup.add(bBack);
 }
 
 const runSides = Math.ceil((TABLE_LENGTH + marginZ * 2) / barrierW);
 for (let i = 0; i < runSides; i++) {
-  const bLeft = makeBarrier();
   const z = -((runSides - 1) * barrierW) / 2 + i * barrierW;
-  bLeft.position.set(-TABLE_WIDTH / 2 - marginX, floorY + barrierH / 2, z);
+
+  const bLeft = makeBarrier();
+  bLeft.position.set(-TABLE_WIDTH / 2 - marginX, barrierH / 2, z);
   bLeft.rotation.y = Math.PI / 2;
   barrierGroup.add(bLeft);
 
   const bRight = makeBarrier();
-  bRight.position.set(TABLE_WIDTH / 2 + marginX, floorY + barrierH / 2, z);
+  bRight.position.set(TABLE_WIDTH / 2 + marginX, barrierH / 2, z);
   bRight.rotation.y = -Math.PI / 2;
   barrierGroup.add(bRight);
 }
@@ -506,39 +500,105 @@ for (let i = 0; i < runSides; i++) {
 scene.add(barrierGroup);
 
 /**
- * Paddles
+ * Deep audience seating only at the back (front platforms removed)
  */
-const PADDLE_WIDTH = 0.5;
-const PADDLE_HEIGHT = 0.6;
-const PADDLE_DEPTH = 0.1;
-
-function makePaddle(material: THREE.Material) {
+function buildBackBleachers(zBase: number) {
   const group = new THREE.Group();
+
+  const rows = 12;
+  const seatsPerRow = 64;
+  const rowDepth = 0.9;
+  const rowHeight = 0.5;
+  const seatSpacing = 0.9;
+  const seatW = 0.42;
+  const seatD = 0.36;
+  const seatH = 0.18;
+
+  const seatGeom = new THREE.BoxGeometry(seatW, seatH, seatD);
+  const seatMat = new THREE.MeshStandardMaterial({
+    color: 0x262b35,
+    roughness: 0.8,
+    metalness: 0.0,
+  });
+
+  const count = rows * seatsPerRow;
+  const seats = new THREE.InstancedMesh(seatGeom, seatMat, count);
+  seats.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+  let i = 0;
+  const dummy = new THREE.Object3D();
+  for (let r = 0; r < rows; r++) {
+    const startX = -((seatsPerRow - 1) * seatSpacing) / 2;
+    for (let s = 0; s < seatsPerRow; s++) {
+      const x = startX + s * seatSpacing;
+      const y = r * rowHeight + seatH / 2;
+      const z = zBase - r * rowDepth;
+      dummy.position.set(x, y, z);
+      dummy.rotation.y = Math.PI; // face table
+      dummy.updateMatrix();
+      seats.setMatrixAt(i++, dummy.matrix);
+    }
+  }
+  group.add(seats);
+  return group;
+}
+
+const backBleachersZ = -TABLE_LENGTH / 2 - marginZ - 2.5;
+const backBleachers = buildBackBleachers(backBleachersZ);
+scene.add(backBleachers);
+
+/**
+ * Extra empty tables on sides for arena vibes
+ */
+function spawnEmptyTable(x: number, z: number) {
+  const t = buildTable();
+  t.position.x = x;
+  t.position.z = z;
+  scene.add(t);
+}
+
+const sideOffsetX = TABLE_WIDTH / 2 + marginX + 6.0;
+spawnEmptyTable(-sideOffsetX, -4.5);
+spawnEmptyTable(-sideOffsetX, 4.5);
+spawnEmptyTable(sideOffsetX, -4.5);
+spawnEmptyTable(sideOffsetX, 4.5);
+
+/**
+ * Player and opponent rackets: circular blades
+ */
+const PADDLE_RADIUS = 0.45;
+const PADDLE_DEPTH = 0.12;
+
+function makeCircularPaddle(material: THREE.Material) {
+  const group = new THREE.Group();
+
   const blade = new THREE.Mesh(
-    new THREE.BoxGeometry(PADDLE_WIDTH, PADDLE_HEIGHT, PADDLE_DEPTH),
+    new THREE.CylinderGeometry(PADDLE_RADIUS, PADDLE_RADIUS, PADDLE_DEPTH, 48),
     material,
   );
+  blade.rotation.x = Math.PI / 2;
   blade.castShadow = true;
   blade.receiveShadow = true;
   group.add(blade);
 
   const handle = new THREE.Mesh(
-    new THREE.BoxGeometry(0.18, 0.4, 0.14),
+    new THREE.CylinderGeometry(0.08, 0.1, 0.6, 24),
     frameMetal,
   );
-  handle.position.set(0, -PADDLE_HEIGHT / 2 - 0.2, 0.0);
+  handle.position.set(0, -0.55, 0);
   handle.castShadow = true;
   handle.receiveShadow = true;
   group.add(handle);
+
   return group;
 }
 
-const playerPaddle = makePaddle(paddleRedMaterial);
-playerPaddle.position.set(0, TABLE_TOP_Y + 0.3, TABLE_LENGTH / 2 + 0.9);
+const playerPaddle = makeCircularPaddle(paddleRedMaterial);
+playerPaddle.position.set(0, TABLE_TOP_Y + 0.35, TABLE_LENGTH / 2 + 1.0);
 scene.add(playerPaddle);
 
-const opponentPaddle = makePaddle(paddleBlackMaterial);
-opponentPaddle.position.set(0, TABLE_TOP_Y + 0.3, -TABLE_LENGTH / 2 - 0.9);
+const opponentPaddle = makeCircularPaddle(paddleBlackMaterial);
+opponentPaddle.position.set(0, TABLE_TOP_Y + 0.35, -TABLE_LENGTH / 2 - 1.0);
 scene.add(opponentPaddle);
 
 /**
@@ -589,8 +649,8 @@ window.addEventListener('mousemove', (event) => {
 
   const clampX = THREE.MathUtils.clamp(
     intersectPoint.x,
-    -TABLE_WIDTH / 2 + PADDLE_WIDTH / 2,
-    TABLE_WIDTH / 2 - PADDLE_WIDTH / 2,
+    -TABLE_WIDTH / 2 + PADDLE_RADIUS,
+    TABLE_WIDTH / 2 - PADDLE_RADIUS,
   );
   playerPaddle.position.x = clampX;
 
@@ -617,8 +677,8 @@ function animate() {
   const aiSpeed = 4.0;
   const targetX = THREE.MathUtils.clamp(
     ball.position.x,
-    -TABLE_WIDTH / 2 + PADDLE_WIDTH / 2,
-    TABLE_WIDTH / 2 - PADDLE_WIDTH / 2,
+    -TABLE_WIDTH / 2 + PADDLE_RADIUS,
+    TABLE_WIDTH / 2 - PADDLE_RADIUS,
   );
   opponentPaddle.position.x += (targetX - opponentPaddle.position.x) * aiSpeed * delta;
 
@@ -684,5 +744,16 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// If your code uses backBleachers:
+scene.remove(backBleachers);
+backBleachers.traverse((o: any) => {
+  if (o.isMesh) {
+    o.geometry?.dispose();
+    if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+    else o.material?.dispose();
+  }
+});
+
 
 animate();
