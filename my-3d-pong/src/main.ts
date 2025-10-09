@@ -5,8 +5,6 @@ import './style.css';
 /**
  * Scene + Renderer
  */
-
-
 const scene = new THREE.Scene();
 // Gradient background texture
 const canvasBG = document.createElement('canvas');
@@ -670,139 +668,501 @@ ball.castShadow = true;
 scene.add(ball);
 
 /**
- * Game logic
+ * Enhanced Game Logic
  */
+interface GameState {
+  isPlaying: boolean;
+  isServing: boolean;
+  lastHitBy: 'player' | 'opponent' | null;
+  ballInPlay: boolean;
+  rallyCount: number;
+}
+
+const gameState: GameState = {
+  isPlaying: false,
+  isServing: true,
+  lastHitBy: null,
+  ballInPlay: false,
+  rallyCount: 0
+};
+
 let playerScore = 0;
 let opponentScore = 0;
-let ballVelocity = new THREE.Vector3(0, 0, 0.14);
+let ballVelocity = new THREE.Vector3(0, 0, 0);
+let ballSpin = new THREE.Vector3(0, 0, 0);
 
-const playerScoreElem = document.getElementById('player-score')!;
-const opponentScoreElem = document.getElementById('opponent-score')!;
+// Enhanced physics constants
+const GRAVITY = 9.8;
+const AIR_RESISTANCE = 0.995;
+const TABLE_RESTITUTION = 0.82;
+const PADDLE_RESTITUTION = 1.15;
+const MAX_BALL_SPEED = 1.5;
+const MIN_SERVE_HEIGHT = 0.15;
+const SPIN_FACTOR = 0.4;
 
-function resetBall() {
-  ball.position.set(0, TABLE_TOP_Y + BALL_RADIUS + 0.05, 0);
-  const serveDir = playerScore >= opponentScore ? -1 : 1;
-  ballVelocity.set(
-    (Math.random() * 0.08 - 0.04),
-    0.10,
-    0.14 * serveDir,
-  );
+// Player paddle state
+const playerPaddleState = {
+  velocity: new THREE.Vector3(0, 0, 0),
+  lastPosition: new THREE.Vector3(),
+  isHitting: false
+};
+
+// Opponent AI state
+const opponentAI = {
+  reactionTime: 0.2,
+  accuracy: 0.85,
+  targetPosition: new THREE.Vector3(),
+  moveSpeed: 6.0,
+  predictionTime: 0.6
+};
+
+// Create game UI elements
+function createGameUI() {
+  const startButton = document.createElement('button');
+  startButton.textContent = 'START GAME';
+  startButton.style.cssText = `
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 15px 30px;
+    font-size: 18px;
+    background: #aa1a1a;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    z-index: 100;
+    font-family: Arial, sans-serif;
+  `;
+  
+  const serveIndicator = document.createElement('div');
+  serveIndicator.textContent = 'MOVE MOUSE TO AIM - CLICK TO SERVE';
+  serveIndicator.style.cssText = `
+    position: absolute;
+    top: 60%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 14px;
+    background: rgba(0,0,0,0.7);
+    padding: 10px 20px;
+    border-radius: 5px;
+    z-index: 100;
+    font-family: Arial, sans-serif;
+    display: none;
+  `;
+
+  gameContainer.appendChild(startButton);
+  gameContainer.appendChild(serveIndicator);
+
+  return { startButton, serveIndicator };
 }
-resetBall();
+
+const { startButton, serveIndicator } = createGameUI();
+
+function startGame() {
+  gameState.isPlaying = true;
+  gameState.isServing = true;
+  gameState.ballInPlay = false;
+  playerScore = 0;
+  opponentScore = 0;
+  
+  const playerScoreElem = document.getElementById('player-score')!;
+  const opponentScoreElem = document.getElementById('opponent-score')!;
+  playerScoreElem.textContent = '0';
+  opponentScoreElem.textContent = '0';
+  
+  startButton.style.display = 'none';
+  serveIndicator.style.display = 'block';
+  
+  resetBallForServe();
+}
+
+function resetBallForServe() {
+  // Position ball in front of player paddle for serve
+  ball.position.copy(playerPaddle.position);
+  ball.position.z -= 0.8;
+  ball.position.y += 0.3;
+  
+  ballVelocity.set(0, 0, 0);
+  ballSpin.set(0, 0, 0);
+  gameState.isServing = true;
+  gameState.lastHitBy = null;
+  gameState.ballInPlay = false;
+  gameState.rallyCount = 0;
+}
+
+function serveBall() {
+  if (!gameState.isServing) return;
+  
+  // Calculate serve direction and power based on paddle movement
+  const servePower = 0.5 + Math.min(playerPaddleState.velocity.length() * 0.3, 0.3);
+  const serveAngleX = (playerPaddle.position.x * 0.1) + (Math.random() - 0.5) * 0.1;
+  
+  ballVelocity.set(
+    serveAngleX,
+    MIN_SERVE_HEIGHT + Math.random() * 0.1,
+    -servePower // Serve toward opponent
+  );
+  
+  gameState.isServing = false;
+  gameState.ballInPlay = true;
+  gameState.lastHitBy = 'player';
+  serveIndicator.style.display = 'none';
+}
+
+function updatePaddleVelocity() {
+  const currentPos = playerPaddle.position.clone();
+  playerPaddleState.velocity.subVectors(currentPos, playerPaddleState.lastPosition);
+  playerPaddleState.lastPosition.copy(currentPos);
+}
+
+function checkTableBounce(): boolean {
+  const tableTopY = TABLE_TOP_Y + 0.001;
+  
+  if (ball.position.y <= tableTopY + BALL_RADIUS && ballVelocity.y < 0) {
+    if (Math.abs(ball.position.x) < TABLE_WIDTH / 2 && 
+        Math.abs(ball.position.z) < TABLE_LENGTH / 2) {
+      
+      // Valid table bounce
+      ball.position.y = tableTopY + BALL_RADIUS;
+      ballVelocity.y *= -TABLE_RESTITUTION;
+      
+      // Apply spin effects
+      ballVelocity.x += ballSpin.z * SPIN_FACTOR;
+      ballVelocity.z += ballSpin.x * SPIN_FACTOR;
+      
+      // Reduce spin on bounce
+      ballSpin.multiplyScalar(0.6);
+      
+      return true;
+    }
+  }
+  return false;
+}
+
+function checkNetCollision(): boolean {
+  const netTopY = TABLE_TOP_Y + NET_HEIGHT;
+  const netBottomY = TABLE_TOP_Y;
+  const netWidth = TABLE_WIDTH + NET_OVERHANG * 2;
+  
+  if (Math.abs(ball.position.x) < netWidth / 2 && 
+      ball.position.y < netTopY + BALL_RADIUS && 
+      ball.position.y > netBottomY - BALL_RADIUS &&
+      Math.abs(ball.position.z) < 0.08) {
+    
+    // Net collision
+    ballVelocity.z *= -0.4;
+    ballVelocity.y *= 0.6;
+    ballVelocity.x += (Math.random() - 0.5) * 0.08;
+    
+    return true;
+  }
+  return false;
+}
+
+function checkPaddleCollision(paddle: THREE.Group, isPlayer: boolean): boolean {
+  const ballBox = new THREE.Box3().setFromObject(ball);
+  const paddleBox = new THREE.Box3().setFromObject(paddle);
+  
+  if (ballBox.intersectsBox(paddleBox)) {
+    const hitDirection = isPlayer ? -1 : 1;
+    const shouldHit = (isPlayer && (ballVelocity.z > 0 || gameState.isServing)) || 
+                     (!isPlayer && ballVelocity.z < 0);
+    
+    if (shouldHit) {
+      // Calculate hit point relative to paddle center
+      const relativeX = ball.position.x - paddle.position.x;
+      const relativeY = ball.position.y - paddle.position.y;
+      
+      // Apply paddle velocity effects for player
+      const paddleVel = isPlayer ? playerPaddleState.velocity : new THREE.Vector3(0, 0, 0);
+      
+      // Calculate new velocity based on hit position and paddle movement
+      const angleX = THREE.MathUtils.clamp(relativeX / PADDLE_RADIUS, -0.6, 0.6);
+      const angleY = THREE.MathUtils.clamp(relativeY / 0.5, -0.4, 0.4);
+      
+      // Base speed with paddle velocity influence
+      const currentSpeed = ballVelocity.length();
+      const baseSpeed = Math.min(
+        currentSpeed * PADDLE_RESTITUTION + paddleVel.length() * 0.4, 
+        MAX_BALL_SPEED
+      );
+      
+      // New velocity direction
+      ballVelocity.set(
+        angleX * baseSpeed * 0.7 + paddleVel.x * 0.4,
+        Math.max(angleY * baseSpeed * 0.5, 0.12),
+        hitDirection * baseSpeed * 0.9
+      );
+      
+      // Apply spin based on paddle movement
+      if (isPlayer) {
+        ballSpin.x = -paddleVel.x * 3;
+        ballSpin.z = paddleVel.y * 2;
+      } else {
+        // AI adds some random spin
+        ballSpin.x = (Math.random() - 0.5) * 0.5;
+        ballSpin.z = (Math.random() - 0.5) * 0.3;
+      }
+      
+      gameState.lastHitBy = isPlayer ? 'player' : 'opponent';
+      gameState.rallyCount++;
+      
+      // If this was a serve, now the ball is in play
+      if (gameState.isServing) {
+        gameState.isServing = false;
+        gameState.ballInPlay = true;
+        serveIndicator.style.display = 'none';
+      }
+      
+      return true;
+    }
+  }
+  return false;
+}
+
+function updateOpponentAI(delta: number) {
+  if (!gameState.ballInPlay || gameState.lastHitBy === 'opponent') return;
+  
+  // Predict ball position
+  const predictionTime = opponentAI.predictionTime;
+  const predictedPosition = ball.position.clone().add(
+    ballVelocity.clone().multiplyScalar(predictionTime)
+  );
+  
+  // Add some inaccuracy based on difficulty and rally count
+  const error = (1 - opponentAI.accuracy) * (1 + gameState.rallyCount * 0.1);
+  predictedPosition.x += (Math.random() - 0.5) * error;
+  predictedPosition.y += (Math.random() - 0.5) * error * 0.3;
+  
+  // Clamp to valid positions
+  opponentAI.targetPosition.set(
+    THREE.MathUtils.clamp(
+      predictedPosition.x,
+      -TABLE_WIDTH / 2 + PADDLE_RADIUS,
+      TABLE_WIDTH / 2 - PADDLE_RADIUS
+    ),
+    THREE.MathUtils.clamp(
+      predictedPosition.y,
+      TABLE_TOP_Y + 0.4,
+      TABLE_TOP_Y + 1.3
+    ),
+    opponentPaddle.position.z
+  );
+  
+  // Move toward target with reaction time delay
+  const t = Math.min(delta / opponentAI.reactionTime, 1);
+  opponentPaddle.position.lerp(opponentAI.targetPosition, t);
+}
+
+function checkScoring(): boolean {
+  const tableEndZ = TABLE_LENGTH / 2;
+  
+  // Ball out of bounds on sides
+  if (Math.abs(ball.position.x) > TABLE_WIDTH / 2 + 2) {
+    return true;
+  }
+  
+  // Ball hit the floor
+  if (ball.position.y < -2) {
+    return true;
+  }
+  
+  // Ball past opponent's end
+  if (ball.position.z < -tableEndZ - 1.5) {
+    if (gameState.lastHitBy === 'player') {
+      playerScore++;
+      document.getElementById('player-score')!.textContent = String(playerScore);
+    }
+    return true;
+  }
+  
+  // Ball past player's end  
+  if (ball.position.z > tableEndZ + 1.5) {
+    if (gameState.lastHitBy === 'opponent') {
+      opponentScore++;
+      document.getElementById('opponent-score')!.textContent = String(opponentScore);
+    }
+    return true;
+  }
+  
+  return false;
+}
 
 /**
- * Controls
+ * Enhanced Controls
  */
 const gamePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -playerPaddle.position.z);
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const intersectPoint = new THREE.Vector3();
 
-window.addEventListener('mousemove', (event) => {
+// Update mouse position and paddle movement
+function updatePaddlePosition(event: MouseEvent) {
+  if (!gameState.isPlaying) return;
+  
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
   raycaster.setFromCamera(mouse, camera);
   raycaster.ray.intersectPlane(gamePlane, intersectPoint);
 
-  const clampX = THREE.MathUtils.clamp(
-    intersectPoint.x,
-    -TABLE_WIDTH / 2 + PADDLE_RADIUS,
-    TABLE_WIDTH / 2 - PADDLE_RADIUS,
-  );
-  playerPaddle.position.x = clampX;
+  if (intersectPoint) {
+    const clampX = THREE.MathUtils.clamp(
+      intersectPoint.x,
+      -TABLE_WIDTH / 2 + PADDLE_RADIUS,
+      TABLE_WIDTH / 2 - PADDLE_RADIUS
+    );
+    
+    const minY = TABLE_TOP_Y + 0.3;
+    const maxY = TABLE_TOP_Y + 1.5;
+    const clampY = THREE.MathUtils.clamp(intersectPoint.y, minY, maxY);
 
-  const minY = TABLE_TOP_Y + 0.2;
-  const maxY = TABLE_TOP_Y + 1.6;
-  playerPaddle.position.y = THREE.MathUtils.clamp(intersectPoint.y, minY, maxY);
+    playerPaddle.position.set(clampX, clampY, playerPaddle.position.z);
+    
+    // If serving, move the ball with the paddle
+    if (gameState.isServing) {
+      ball.position.copy(playerPaddle.position);
+      ball.position.z -= 0.8;
+      ball.position.y += 0.3;
+    }
+  }
+}
+
+// Event listeners
+window.addEventListener('mousemove', updatePaddlePosition);
+
+window.addEventListener('mousedown', (event) => {
+  if (!gameState.isPlaying) {
+    startGame();
+    return;
+  }
+  
+  if (gameState.isServing) {
+    serveBall();
+  }
 });
 
+// Touch support for mobile
+window.addEventListener('touchmove', (event) => {
+  if (!gameState.isPlaying) return;
+  event.preventDefault();
+  
+  const touch = event.touches[0];
+  mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  raycaster.ray.intersectPlane(gamePlane, intersectPoint);
+
+  if (intersectPoint) {
+    const clampX = THREE.MathUtils.clamp(
+      intersectPoint.x,
+      -TABLE_WIDTH / 2 + PADDLE_RADIUS,
+      TABLE_WIDTH / 2 - PADDLE_RADIUS
+    );
+    
+    const minY = TABLE_TOP_Y + 0.3;
+    const maxY = TABLE_TOP_Y + 1.5;
+    const clampY = THREE.MathUtils.clamp(intersectPoint.y, minY, maxY);
+
+    playerPaddle.position.set(clampX, clampY, playerPaddle.position.z);
+    
+    if (gameState.isServing) {
+      ball.position.copy(playerPaddle.position);
+      ball.position.z -= 0.8;
+      ball.position.y += 0.3;
+    }
+  }
+});
+
+window.addEventListener('touchstart', (event) => {
+  if (!gameState.isPlaying) {
+    startGame();
+    return;
+  }
+  
+  if (gameState.isServing) {
+    serveBall();
+  }
+});
+
+// Initialize paddle position tracking
+playerPaddleState.lastPosition.copy(playerPaddle.position);
+
 /**
- * Animation + Physics
+ * Enhanced Animation + Physics
  */
 const clock = new THREE.Clock();
-const GRAVITY = 9.8;
 
 function animate() {
   requestAnimationFrame(animate);
-  const delta = clock.getDelta();
+  const delta = Math.min(clock.getDelta(), 0.033);
 
-  // Animate dust particles
+  // Update paddle velocity for hit calculations
+  updatePaddleVelocity();
+
+  // Animate dust particles (existing code)
   const posArr = particlesGeo.attributes.position.array as Float32Array;
   for (let i = 0; i < particleCount; i++) {
-    posArr[i * 3 + 1] += delta * 0.03; // rise
-    posArr[i * 3] += Math.sin(clock.elapsedTime + i) * 0.001; // drift sideways
+    posArr[i * 3 + 1] += delta * 0.03;
+    posArr[i * 3] += Math.sin(clock.elapsedTime + i) * 0.001;
     if (posArr[i * 3 + 1] > arenaH) {
       posArr[i * 3 + 1] = 0.5 + Math.random() * arenaH * 0.3;
     }
   }
   particlesGeo.attributes.position.needsUpdate = true;
 
-  // Ball physics
-  ballVelocity.y -= GRAVITY * delta * 0.20;
-  ball.position.addScaledVector(ballVelocity, delta * 15);
-
-  // Opponent AI follows ball X smoothly
-  const aiSpeed = 4.0;
-  const targetX = THREE.MathUtils.clamp(
-    ball.position.x,
-    -TABLE_WIDTH / 2 + PADDLE_RADIUS,
-    TABLE_WIDTH / 2 - PADDLE_RADIUS,
-  );
-  opponentPaddle.position.x += (targetX - opponentPaddle.position.x) * aiSpeed * delta;
-
-  // Table bounce
-  const tableTopY = TABLE_TOP_Y + 0.0001;
-  if (ball.position.y <= tableTopY + BALL_RADIUS && ballVelocity.y < 0) {
-    if (
-      Math.abs(ball.position.x) < TABLE_WIDTH / 2 &&
-      Math.abs(ball.position.z) < TABLE_LENGTH / 2
-    ) {
-      ball.position.y = tableTopY + BALL_RADIUS;
-      ballVelocity.y *= -0.9;
-      ballVelocity.x *= 0.995;
-      ballVelocity.z *= 0.995;
+  if (gameState.isPlaying) {
+    if (gameState.ballInPlay) {
+      // Apply gravity
+      ballVelocity.y -= GRAVITY * delta * 0.3;
+      
+      // Apply air resistance
+      ballVelocity.multiplyScalar(AIR_RESISTANCE);
+      
+      // Apply spin effects
+      ballVelocity.x += ballSpin.z * delta * 3;
+      ballVelocity.z += ballSpin.x * delta * 3;
+      
+      // Decay spin
+      ballSpin.multiplyScalar(0.97);
+      
+      // Limit maximum speed
+      if (ballVelocity.length() > MAX_BALL_SPEED) {
+        ballVelocity.normalize().multiplyScalar(MAX_BALL_SPEED);
+      }
+      
+      // Update ball position
+      ball.position.addScaledVector(ballVelocity, delta * 18);
+      
+      // Check collisions
+      const hitNet = checkNetCollision();
+      const hitTable = !hitNet && checkTableBounce();
+      const hitPlayerPaddle = checkPaddleCollision(playerPaddle, true);
+      const hitOpponentPaddle = checkPaddleCollision(opponentPaddle, false);
+      
+      // Update AI
+      updateOpponentAI(delta);
+      
+      // Check for scoring
+      if (checkScoring()) {
+        resetBallForServe();
+        serveIndicator.style.display = 'block';
+        serveIndicator.textContent = 'MOVE MOUSE TO AIM - CLICK TO SERVE';
+      }
+    } else if (gameState.isServing) {
+      // Ball follows paddle during serve
+      ball.position.copy(playerPaddle.position);
+      ball.position.z -= 0.8;
+      ball.position.y += 0.3;
+      
+      // Update AI to ready position during serve
+      opponentAI.targetPosition.set(0, TABLE_TOP_Y + 0.8, opponentPaddle.position.z);
+      opponentPaddle.position.lerp(opponentAI.targetPosition, delta * 3);
     }
-  }
-
-  // Net collision (simplified)
-  const netTopY = TABLE_TOP_Y + NET_HEIGHT;
-  const nearNet = Math.abs(ball.position.z) < 0.06;
-  const belowTop = ball.position.y < netTopY + BALL_RADIUS + 0.015;
-  const withinNetX = Math.abs(ball.position.x) < (TABLE_WIDTH / 2 + NET_OVERHANG);
-  if (nearNet && belowTop && withinNetX) {
-    const sign = ballVelocity.z > 0 ? 1 : -1;
-    ball.position.z = 0.06 * sign;
-    ballVelocity.z *= -0.55;
-    ballVelocity.y = Math.abs(ballVelocity.y) * 0.5 + 0.05;
-  }
-
-  // Paddle collisions
-  const ballBox = new THREE.Box3().setFromObject(ball);
-  const playerBox = new THREE.Box3().setFromObject(playerPaddle);
-  const oppBox = new THREE.Box3().setFromObject(opponentPaddle);
-
-  if (ballBox.intersectsBox(playerBox) && ballVelocity.z > 0) {
-    ballVelocity.z *= -1.08;
-    ballVelocity.x += (ball.position.x - playerPaddle.position.x) * 0.22;
-    ballVelocity.y = 0.20;
-  }
-  if (ballBox.intersectsBox(oppBox) && ballVelocity.z < 0) {
-    ballVelocity.z *= -1.08;
-    ballVelocity.x += (ball.position.x - opponentPaddle.position.x) * 0.22;
-    ballVelocity.y = 0.20;
-  }
-
-  // Scoring
-  if (ball.position.z > TABLE_LENGTH / 2 + 2) {
-    opponentScore++;
-    opponentScoreElem.textContent = String(opponentScore);
-    resetBall();
-  }
-  if (ball.position.z < -TABLE_LENGTH / 2 - 2) {
-    playerScore++;
-    playerScoreElem.textContent = String(playerScore);
-    resetBall();
   }
 
   renderer.render(scene, camera);
@@ -899,7 +1259,7 @@ function createPremiumWoodTexture(width = 2048, height = 1024) {
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(3, 2);
   texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  texture.encoding = THREE.sRGBEncoding;
+  texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
@@ -931,4 +1291,5 @@ rightWoodWall.rotation.y = -Math.PI / 2;
 rightWoodWall.position.x = arenaW / 2;
 scene.add(rightWoodWall);
 
+// Start the animation loop
 animate();
