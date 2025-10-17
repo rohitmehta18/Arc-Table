@@ -1,33 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
-
+/* style.css */
 body {
-  margin: 0;
-  overflow: hidden;
-  background-color: #0a0a0a;
-  color: white;
-  font-family: 'Orbitron', sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
 }
 
 #game-container {
-  position: absolute;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-}
-
-#score-board {
-  position: absolute;
-  top: 30px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 5vw;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  opacity: 0.95;
-  user-select: none;
-  z-index: 10;
-}
-
-canvas {
-  display: block;
+    position: relative;
+    width: 100vw;
+    height: 100vh;
 }
